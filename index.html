@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Odak</title>
+  <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Odak">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app">
+
+    <!-- ODAK -->
+    <section id="view-focus" class="view">
+      <div id="setup" class="setup">
+        <div class="spacer"></div>
+        <p id="result" class="result" hidden></p>
+        <div class="big">
+          <span id="minutes">25</span>
+          <small>dakika</small>
+        </div>
+        <input id="slider" type="range" min="5" max="180" step="5" value="25" aria-label="Süre (dakika)">
+        <div id="tags" class="tags"></div>
+        <div class="spacer"></div>
+        <button id="start" class="primary" type="button">Başla</button>
+      </div>
+
+      <div id="running" class="runningbox" hidden>
+        <div class="spacer"></div>
+        <div class="ringwrap">
+          <svg viewBox="0 0 280 280" width="280" height="280" aria-hidden="true">
+            <circle cx="140" cy="140" r="130" class="ring-track"/>
+            <circle id="ring" cx="140" cy="140" r="130" class="ring-fill" transform="rotate(-90 140 140)"/>
+          </svg>
+          <div class="ringtext">
+            <div id="time" class="time">00:00</div>
+            <div id="runtag" class="runtag"></div>
+          </div>
+        </div>
+        <div class="spacer"></div>
+        <button id="stop" class="ghost" type="button">Bitir</button>
+      </div>
+    </section>
+
+    <!-- İSTATİSTİK -->
+    <section id="view-stats" class="view" hidden>
+      <header class="pagehead">
+        <h1>İstatistik</h1>
+        <div class="menuwrap">
+          <button id="menubtn" class="iconbtn" type="button" aria-label="Menü">⋯</button>
+          <div id="menu" class="menu" hidden>
+            <button type="button" data-act="syncnow">Şimdi senkronla</button>
+            <button type="button" data-act="sync">Senkron ayarları</button>
+            <button type="button" data-act="seed">Örnek veri ekle</button>
+            <button type="button" data-act="export">Yedek indir (JSON)</button>
+            <button type="button" data-act="import">Yedekten yükle</button>
+            <button type="button" data-act="wipe" class="danger">Tüm verileri sil</button>
+          </div>
+        </div>
+      </header>
+      <p id="syncstatus" class="syncline" hidden></p>
+      <div id="trend" class="card"></div>
+      <div id="breakdown" class="card"></div>
+      <input id="file" type="file" accept="application/json,.json" hidden>
+    </section>
+
+  </main>
+
+  <!-- SENKRON AYARLARI -->
+  <div id="syncdlg" class="overlay" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="Senkron ayarları">
+      <h2>Senkron (GitHub)</h2>
+      <p class="hint">Özel (private) bir GitHub reposu ve sadece o repoya erişen bir token gir. Aynı bilgileri diğer cihazda da gir.</p>
+      <label>Repo
+        <input id="sync-repo" type="text" placeholder="kullanici-adin/odak-data" autocapitalize="off" autocorrect="off" spellcheck="false">
+      </label>
+      <label>Token
+        <input id="sync-token" type="password" placeholder="github_pat_..." autocapitalize="off" autocorrect="off" spellcheck="false" autocomplete="off">
+      </label>
+      <p id="sync-msg" class="hint"></p>
+      <button id="sync-save" class="primary" type="button">Kaydet ve senkronla</button>
+      <div class="sheet-row">
+        <button id="sync-off" class="ghost" type="button">Bağlantıyı kaldır</button>
+        <button id="sync-close" class="ghost" type="button">Kapat</button>
+      </div>
+    </div>
+  </div>
+
+  <nav id="tabbar">
+    <button type="button" data-tab="focus" class="active">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7.5V12l3 2"/></svg>
+      <span>Odak</span>
+    </button>
+    <button type="button" data-tab="stats">
+      <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3.5a8.5 8.5 0 1 0 8.5 8.5H12z"/><path d="M15 3.8a8.5 8.5 0 0 1 5.2 5.2H15z"/></svg>
+      <span>İstatistik</span>
+    </button>
+  </nav>
+
+  <script src="app.js"></script>
+</body>
+</html>
