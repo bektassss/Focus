@@ -45,6 +45,7 @@
             <div id="runtag" class="runtag"></div>
           </div>
         </div>
+        <p id="quote" class="quote"></p>
         <div class="spacer"></div>
         <button id="stop" class="ghost" type="button">Bitir</button>
       </div>
@@ -69,10 +70,36 @@
       <p id="syncstatus" class="syncline" hidden></p>
       <div id="trend" class="card"></div>
       <div id="breakdown" class="card"></div>
+      <div id="broken" class="card"></div>
       <input id="file" type="file" accept="application/json,.json" hidden>
     </section>
 
   </main>
+
+  <!-- ETİKETLER -->
+  <div id="tagdlg" class="overlay" hidden>
+    <div class="sheet" role="dialog" aria-modal="true" aria-label="Etiketler">
+      <h2>Etiketler</h2>
+      <div id="taglist" class="taglist"></div>
+      <p id="tagform-title" class="hint">Yeni etiket</p>
+      <label>Ad
+        <input id="tag-name" type="text" maxlength="24" placeholder="Örn. Kitap" autocomplete="off">
+      </label>
+      <label>İkon
+        <input id="tag-icon" type="text" placeholder="Emoji yaz ya da aşağıdan seç" autocomplete="off">
+      </label>
+      <div id="tag-icons" class="swatches"></div>
+      <p class="hint" style="margin-top:12px">Renk</p>
+      <div id="tag-colors" class="swatches"></div>
+      <p id="tag-msg" class="hint err"></p>
+      <button id="tag-save" class="primary" type="button">Ekle</button>
+      <div class="sheet-row">
+        <button id="tag-del" class="ghost danger" type="button" hidden>Sil</button>
+        <button id="tag-new" class="ghost" type="button" hidden>Yeni etiket</button>
+        <button id="tag-close" class="ghost" type="button">Kapat</button>
+      </div>
+    </div>
+  </div>
 
   <!-- SENKRON AYARLARI -->
   <div id="syncdlg" class="overlay" hidden>

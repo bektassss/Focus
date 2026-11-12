@@ -4,16 +4,43 @@
   // ---------------------------------------------------------------
   // Sabitler
   // ---------------------------------------------------------------
-  const TAGS = [
-    { id: 'study', title: 'Ders Çalışma', color: '#e3c787' },
-    { id: 'sport', title: 'Spor', color: '#8fbdc9' },
-    { id: 'work', title: 'İş', color: '#d4998f' },
-    { id: 'fun', title: 'Eğlence', color: '#c9cc8a' },
+  // Varsayılan etiketler (kullanıcı düzenleyebilir/silebilir)
+  const DEFAULT_TAGS = [
+    { id: 'study', title: 'Ders Çalışma', color: '#e3c787', icon: '📚', created: 0 },
+    { id: 'sport', title: 'Spor', color: '#8fbdc9', icon: '🏃', created: 1 },
+    { id: 'work', title: 'İş', color: '#d4998f', icon: '💼', created: 2 },
+    { id: 'fun', title: 'Eğlence', color: '#c9cc8a', icon: '🎮', created: 3 },
   ];
-  const TAG = Object.fromEntries(TAGS.map((t) => [t.id, t]));
+  const PALETTE = ['#e3c787', '#8fbdc9', '#d4998f', '#c9cc8a', '#b7a6d6', '#e0a3b8', '#8fc7a8', '#e69a5a', '#d96459', '#9aa7b8'];
+  const ICONS = ['📚', '🏃', '💼', '🎮', '💻', '🎨', '🎵', '📖', '🧘', '✍️', '🍳', '🛠️', '🧪', '🌱', '☕', '🏋️'];
 
-  // Odaktan çıkınca oturumun bozulmasına kadar tanınan süre
-  const GRACE_MS = 15000;
+  // Odak ekranında rastgele gösterilen kısa sözler
+  const QUOTES = [
+    'Küçük adımlar da seni oraya götürür.',
+    'Şimdi sadece bu iş var.',
+    'Dikkatin, en değerli sermayen.',
+    'Zor olan başlamaktı, başladın.',
+    'Nefes al, devam et.',
+    'Her dakika birikir.',
+    'Mükemmel olması gerekmiyor, bitmesi yeter.',
+    'Dağınık zihin, sakin bir odakla toparlanır.',
+    'Bir bölüm daha, sonra mola.',
+    'Odak bir kas gibi, çalıştıkça güçlenir.',
+    'Dikkatini geri getirmen de bir başarı.',
+    'Az ama derin.',
+    'Bu süre sadece sana ait.',
+    'İlerleme hız değil, süreklilik.',
+    'Bitirdiğinde kendine teşekkür edeceksin.',
+    'Bir sonraki dakikaya odaklan.',
+    'Gürültü geçer, iş kalır.',
+    'Şimdi ekranın değil, işin zamanı.',
+    'Küçük bir gayret, büyük bir birikim.',
+    'Yavaş ama kesintisiz.',
+    'Tek iş, tam dikkat.',
+    'Sessizlik de iyi bir çalışma arkadaşıdır.',
+    'Bugünün emeği, yarının rahatlığı.',
+    'Sakin kal, devam et.',
+  ];
   const RING_LEN = 816.81; // 2 * PI * 130
   const SYNC_FILE = 'odak-data.json';
 
@@ -23,6 +50,7 @@
     prefs: 'odak.prefs.v1',
     meta: 'odak.meta.v1',
     sync: 'odak.sync.v1',
+    tags: 'odak.tags.v1',
   };
 
   // ---------------------------------------------------------------
@@ -75,6 +103,20 @@
     return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + a + ')';
   }
 
+  const esc = (str) => String(str).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  /** Metnin ilk "görünen karakteri" (emoji birden çok kod noktası olabilir) */
+  function firstGrapheme(str) {
+    if (!str) return '';
+    try {
+      if (typeof Intl !== 'undefined' && Intl.Segmenter) {
+        const it = new Intl.Segmenter(undefined, { granularity: 'grapheme' }).segment(str)[Symbol.iterator]().next();
+        return it.done ? '' : it.value.segment;
+      }
+    } catch (e) { /* yedek yola geç */ }
+    return Array.from(str)[0] || '';
+  }
+
   /** UTF-8 güvenli base64 (GitHub API içerik formatı) */
   function b64encode(str) {
     const bytes = new TextEncoder().encode(str);
@@ -113,11 +155,37 @@
     };
   }
 
+  // Etiket: { id, title, color, icon, created, updated, deleted }  (silme = deleted:true işareti)
+  function normalizeTag(t) {
+    if (!t || typeof t.id !== 'string' || !t.id || typeof t.title !== 'string') return null;
+    return {
+      id: t.id,
+      title: t.title.slice(0, 24),
+      color: /^#[0-9a-f]{6}$/i.test(t.color) ? t.color : '#9aa7b8',
+      icon: typeof t.icon === 'string' ? t.icon.slice(0, 8) : '',
+      created: Number.isFinite(t.created) ? t.created : 0,
+      updated: Number.isFinite(t.updated) ? t.updated : 0,
+      deleted: !!t.deleted,
+    };
+  }
+
+  /** Kimliğe göre birleşim; `updated` daha yeni olan kazanır (eşitse b). */
+  function mergeTags(a, b) {
+    const map = new Map();
+    for (const raw of [].concat(b || [], a || [])) {
+      const n = normalizeTag(raw);
+      if (!n) continue;
+      const prev = map.get(n.id);
+      if (!prev || n.updated > prev.updated) map.set(n.id, n);
+    }
+    return Array.from(map.values()).sort((x, y) => x.created - y.created || (x.id < y.id ? -1 : 1));
+  }
+
   /**
    * İki kaynağı birleştirir: kimliğe göre birleşim; aynı kimlikte daha yeni `added` kazanır.
    * `wipedAt` (son "tümünü sil" anı) öncesinde eklenmiş kayıtlar atılır.
    */
-  function mergeData(localSessions, localWipedAt, remote) {
+  function mergeData(localSessions, localWipedAt, remote, localTags) {
     const wiped = Math.max(localWipedAt || 0, (remote && Number(remote.wipedAt)) || 0);
     const all = [].concat((remote && Array.isArray(remote.sessions)) ? remote.sessions : [], localSessions);
     const map = new Map();
@@ -128,10 +196,13 @@
       if (!prev || n.added > prev.added) map.set(n.id, n);
     }
     const list = Array.from(map.values()).sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
-    return { wipedAt: wiped, sessions: list };
+    const tags = mergeTags(localTags, remote && Array.isArray(remote.tags) ? remote.tags : []);
+    return { wipedAt: wiped, sessions: list, tags };
   }
 
-  const sameData = (a, b) => a.wipedAt === b.wipedAt && JSON.stringify(a.sessions) === JSON.stringify(b.sessions);
+  const sameData = (a, b) => a.wipedAt === b.wipedAt &&
+    JSON.stringify(a.sessions) === JSON.stringify(b.sessions) &&
+    JSON.stringify(a.tags) === JSON.stringify(b.tags);
 
   /** Verilen aralığa (ms) düşen toplam odak süresi (saniye). */
   function focusSeconds(from, to) {
@@ -151,6 +222,8 @@
   let sessions = (load(K.sessions, []) || []).map(normalize).filter(Boolean);
   save(K.sessions, sessions); // eski kayıtlara id ekleyerek geri yaz
   const meta = Object.assign({ wipedAt: 0 }, load(K.meta, {}));
+  let tags = mergeTags(DEFAULT_TAGS.map((t) => Object.assign({ updated: 0 }, t)), load(K.tags, []));
+  save(K.tags, tags);
   let running = load(K.running, null);
   const prefs = Object.assign({ minutes: 25, tag: 'study' }, load(K.prefs, {}));
   let period = 'today';
@@ -158,14 +231,30 @@
   let wakeLock = null;
 
   // ---------------------------------------------------------------
+  // Etiketler
+  // ---------------------------------------------------------------
+  const activeTags = () => tags.filter((t) => !t.deleted);
+  /** Silinmiş etiketler de geçmiş kayıtlar için bulunur */
+  const tagOf = (id) => tags.find((t) => t.id === id) || { id, title: 'Silinmiş etiket', color: '#9aa7b8', icon: '' };
+
+  function ensurePrefTag() {
+    const act = activeTags();
+    if (!act.some((t) => t.id === prefs.tag)) {
+      prefs.tag = act[0] ? act[0].id : '';
+      save(K.prefs, prefs);
+    }
+  }
+
+  // ---------------------------------------------------------------
   // Ayar ekranı
   // ---------------------------------------------------------------
   function renderTagChips() {
-    $('#tags').innerHTML = TAGS.map((t) =>
-      '<button type="button" class="chip' + (prefs.tag === t.id ? ' sel' : '') + '" data-tag="' + t.id + '"' +
+    ensurePrefTag();
+    $('#tags').innerHTML = activeTags().map((t) =>
+      '<button type="button" class="chip' + (prefs.tag === t.id ? ' sel' : '') + '" data-tag="' + esc(t.id) + '"' +
       ' style="--c:' + t.color + ';--c25:' + hexToRgba(t.color, 0.25) + '">' +
-      '<i></i>' + t.title + '</button>'
-    ).join('');
+      '<i></i>' + (t.icon ? '<span class="ic">' + esc(t.icon) + '</span>' : '') + esc(t.title) + '</button>'
+    ).join('') + '<button type="button" class="chip edit" data-edit="1"><span class="ic">✎</span>Düzenle</button>';
   }
 
   /** Kaydırıcının dolu kısmını boyar */
@@ -196,6 +285,7 @@
   });
 
   $('#tags').addEventListener('click', (e) => {
+    if (e.target.closest('[data-edit]')) { openTagDialog(); return; }
     const btn = e.target.closest('[data-tag]');
     if (!btn) return;
     prefs.tag = btn.dataset.tag;
@@ -212,8 +302,14 @@
     document.body.classList.add('running');
     $('#setup').hidden = true;
     $('#running').hidden = false;
-    $('#runtag').textContent = TAG[running.tag] ? TAG[running.tag].title : '';
-    $('#ring').style.stroke = TAG[running.tag] ? TAG[running.tag].color : '';
+    const rt = tagOf(running.tag);
+    $('#runtag').textContent = (rt.icon ? rt.icon + ' ' : '') + rt.title;
+    $('#ring').style.stroke = rt.color;
+    if (typeof running.q !== 'number') {
+      running.q = Math.floor(Math.random() * QUOTES.length);
+      save(K.running, running);
+    }
+    $('#quote').textContent = QUOTES[running.q % QUOTES.length];
     $('#ring').style.transition = 'none';
     tick();
     requestAnimationFrame(() => { $('#ring').style.transition = ''; });
@@ -259,22 +355,21 @@
     const r = running;
     const endAt = at == null ? now() : at;
     const elapsed = Math.min(r.totalSeconds, Math.max(0, Math.floor((endAt - r.start) / 1000)));
-    const saved = elapsed >= 60;
+    const completed = outcome === 'completed';
+    // Tamamlananlar en az 1 dk; bozulanlar (Bitir / odaktan çıkma) 5 sn'den uzunsa kaydedilir
+    const saved = completed ? elapsed >= 60 : elapsed >= 5;
 
     if (saved) {
-      sessions.push(newSession(r.start, elapsed, r.tag, outcome === 'completed'));
+      sessions.push(newSession(r.start, elapsed, r.tag, completed));
       save(K.sessions, sessions);
     }
 
+    const dur = elapsed < 60 ? elapsed + ' sn' : fmtLong(elapsed);
     let msg;
-    if (outcome === 'completed') {
-      msg = 'Oturum tamamlandı · ' + fmtLong(elapsed);
-    } else if (outcome === 'stopped') {
-      msg = saved ? 'Oturum bitirildi · ' + fmtLong(elapsed) + ' kaydedildi'
-                  : '1 dakikadan kısa olduğu için kaydedilmedi';
+    if (completed) {
+      msg = 'Oturum tamamlandı · ' + dur;
     } else {
-      msg = saved ? 'Odaktan çıktın, oturum bozuldu · ' + fmtLong(elapsed) + ' kaydedildi'
-                  : 'Odaktan çıktın, oturum bozuldu · kaydedilmedi';
+      msg = saved ? 'Odak bozuldu · ' + dur + ' kaydedildi' : 'Odak bozuldu · çok kısa olduğu için kaydedilmedi';
     }
 
     running = null;
@@ -286,7 +381,9 @@
   }
 
   $('#start').addEventListener('click', start);
-  $('#stop').addEventListener('click', () => finish('stopped'));
+  $('#stop').addEventListener('click', () => {
+    if (confirm('Odağı şimdi bitirirsen "bozulan odak" sayılır. Emin misin?')) finish('stopped');
+  });
 
   // ---------------------------------------------------------------
   // Yumuşak kilit (soft lock): sayfa gizlenirse "odaktan çıktı" say
@@ -304,7 +401,10 @@
     if (running.leftAt) {
       const left = running.leftAt;
       running.leftAt = null;
-      if (t - left > GRACE_MS) { finish('broken', left); return; }
+      // Tolerans = odak süresi: uygulamadan/ekrandan çıkmak odağı bozmaz (sadece "Bitir" bozar)
+      // (Süre dışarıdayken dolduysa sadece bitişe kadarki kısım sayılır)
+      const grace = running.totalSeconds * 1000;
+      if (Math.min(t, endOf(running)) - left > grace) { finish('broken', left); return; }
       save(K.running, running);
     }
     if (t >= endOf(running)) finish('completed', endOf(running));
@@ -392,10 +492,10 @@
     const from = period === 'today' ? todayStart : addDays(todayStart, -6);
     const inRange = sessions.filter((s) => s.start >= from);
 
-    const slices = TAGS
-      .map((t) => ({
-        tag: t,
-        seconds: inRange.filter((s) => s.tag === t.id).reduce((a, s) => a + s.seconds, 0),
+    const slices = Array.from(new Set(inRange.map((s) => s.tag)))
+      .map((id) => ({
+        tag: tagOf(id),
+        seconds: inRange.filter((s) => s.tag === id).reduce((a, s) => a + s.seconds, 0),
       }))
       .filter((s) => s.seconds > 0)
       .sort((a, b) => b.seconds - a.seconds);
@@ -438,7 +538,7 @@
 
     const legend = slices.map((s) =>
       '<div class="legend-row"><i style="background:' + s.tag.color + '"></i>' +
-      '<span class="name">' + s.tag.title + '</span>' +
+      '<span class="name">' + (s.tag.icon ? esc(s.tag.icon) + ' ' : '') + esc(s.tag.title) + '</span>' +
       '<span class="pct">' + Math.round((s.seconds / total) * 100) + '%</span>' +
       '<span class="dur">' + fmtShort(s.seconds) + '</span></div>'
     ).join('');
@@ -448,16 +548,42 @@
       '<div>' + legend + '</div>';
   }
 
+  // ---------------------------------------------------------------
+  // İstatistik: Kart 3 — Bozulan Odak (Etiket Dağılımı ile aynı dönem)
+  // ---------------------------------------------------------------
+  function renderBroken() {
+    const todayStart = startOfDay(now());
+    const from = period === 'today' ? todayStart : addDays(todayStart, -6);
+    const inRange = sessions.filter((s) => s.start >= from);
+    const ok = inRange.filter((s) => s.completed);
+    const bad = inRange.filter((s) => !s.completed);
+    const sec = (list) => list.reduce((a, s) => a + s.seconds, 0);
+
+    const head = '<div class="cardhead"><h2>Bozulan Odak</h2></div>';
+    if (!inRange.length) {
+      $('#broken').innerHTML = head + '<div class="empty">Bu dönemde kayıt yok</div>';
+      return;
+    }
+    $('#broken').innerHTML = head +
+      '<div class="splitbar"><div class="ok" style="flex:' + ok.length + '"></div><div class="bad" style="flex:' + bad.length + '"></div></div>' +
+      '<div class="legend-row"><i style="background:var(--accent)"></i><span class="name">Tamamlanan</span>' +
+      '<span class="pct">' + ok.length + '</span><span class="dur">' + fmtShort(sec(ok)) + '</span></div>' +
+      '<div class="legend-row"><i style="background:#d9877d"></i><span class="name">Bozulan</span>' +
+      '<span class="pct">' + bad.length + '</span><span class="dur">' + fmtShort(sec(bad)) + '</span></div>';
+  }
+
   $('#breakdown').addEventListener('click', (e) => {
     const b = e.target.closest('[data-period]');
     if (!b) return;
     period = b.dataset.period;
     renderBreakdown();
+    renderBroken();
   });
 
   function renderStats() {
     renderTrend();
     renderBreakdown();
+    renderBroken();
   }
 
   // ---------------------------------------------------------------
@@ -560,19 +686,22 @@
       let done = false;
       for (let attempt = 0; attempt < 3 && !done; attempt++) {
         const remote = await ghGet(cfg);
-        const merged = mergeData(sessions, meta.wipedAt, remote.missing ? null : remote.data);
+        const merged = mergeData(sessions, meta.wipedAt, remote.missing ? null : remote.data, tags);
 
         // Yerel veriyi birleşmiş hâliyle güncelle
         sessions = merged.sessions;
         meta.wipedAt = merged.wipedAt;
+        tags = merged.tags;
         save(K.sessions, sessions);
         save(K.meta, meta);
+        save(K.tags, tags);
         renderStats();
+        renderTagChips();
 
-        const remoteNow = remote.missing ? null : mergeData([], 0, remote.data);
+        const remoteNow = remote.missing ? null : mergeData([], 0, remote.data, []);
         if (remoteNow && sameData(merged, remoteNow)) { done = true; break; }
 
-        const r = await ghPut(cfg, { version: 1, wipedAt: merged.wipedAt, sessions: merged.sessions }, remote.sha);
+        const r = await ghPut(cfg, { version: 2, wipedAt: merged.wipedAt, sessions: merged.sessions, tags: merged.tags }, remote.sha);
         if (r.ok) done = true;
       }
       if (!done) throw new Error('conflict');
@@ -627,6 +756,104 @@
   });
 
   // ---------------------------------------------------------------
+  // Etiket penceresi: ekle / düzenle / sil
+  // ---------------------------------------------------------------
+  const tagdlg = $('#tagdlg');
+  let editingId = null;
+  let formColor = PALETTE[0];
+
+  function renderTagDialog() {
+    $('#taglist').innerHTML = activeTags().map((t) =>
+      '<button type="button" class="tagrow' + (editingId === t.id ? ' on' : '') + '" data-id="' + esc(t.id) + '">' +
+      '<i style="background:' + t.color + '"></i><span class="ic">' + esc(t.icon) + '</span>' +
+      '<span class="nm">' + esc(t.title) + '</span></button>'
+    ).join('');
+    $('#tag-colors').innerHTML = PALETTE.map((c) =>
+      '<button type="button" data-c="' + c + '" class="' + (formColor === c ? 'on' : '') + '" style="background:' + c + '" aria-label="Renk"></button>'
+    ).join('');
+    $('#tag-icons').innerHTML = ICONS.map((i) => '<button type="button" data-i="' + i + '">' + i + '</button>').join('');
+    $('#tagform-title').textContent = editingId ? 'Etiketi düzenle' : 'Yeni etiket';
+    $('#tag-save').textContent = editingId ? 'Güncelle' : 'Ekle';
+    $('#tag-del').hidden = !editingId;
+    $('#tag-new').hidden = !editingId;
+  }
+
+  function resetTagForm() {
+    editingId = null;
+    $('#tag-name').value = '';
+    $('#tag-icon').value = '';
+    formColor = PALETTE[0];
+    $('#tag-msg').textContent = '';
+    renderTagDialog();
+  }
+
+  function openTagDialog() { resetTagForm(); tagdlg.hidden = false; }
+  function closeTagDialog() { tagdlg.hidden = true; }
+
+  $('#taglist').addEventListener('click', (e) => {
+    const row = e.target.closest('[data-id]');
+    if (!row) return;
+    const t = tagOf(row.dataset.id);
+    editingId = t.id;
+    $('#tag-name').value = t.title;
+    $('#tag-icon').value = t.icon;
+    formColor = t.color;
+    $('#tag-msg').textContent = '';
+    renderTagDialog();
+  });
+  $('#tag-colors').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-c]');
+    if (!b) return;
+    formColor = b.dataset.c;
+    renderTagDialog();
+  });
+  $('#tag-icons').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-i]');
+    if (b) $('#tag-icon').value = b.dataset.i;
+  });
+
+  $('#tag-save').addEventListener('click', () => {
+    const title = $('#tag-name').value.trim();
+    if (!title) { $('#tag-msg').textContent = 'Ad boş olamaz'; return; }
+    const icon = firstGrapheme($('#tag-icon').value.trim());
+    const t = now();
+    let selectId;
+    if (editingId) {
+      const i = tags.findIndex((x) => x.id === editingId);
+      tags[i] = Object.assign({}, tags[i], { title, color: formColor, icon, updated: t });
+      selectId = editingId;
+    } else {
+      selectId = 't' + t.toString(36) + Math.random().toString(36).slice(2, 5);
+      tags.push({ id: selectId, title, color: formColor, icon, created: t, updated: t, deleted: false });
+    }
+    save(K.tags, tags);
+    prefs.tag = selectId;
+    save(K.prefs, prefs);
+    resetTagForm();
+    renderTagChips();
+    renderStats();
+    runSync();
+  });
+
+  $('#tag-del').addEventListener('click', () => {
+    if (!editingId) return;
+    if (activeTags().length <= 1) { $('#tag-msg').textContent = 'En az bir etiket kalmalı'; return; }
+    const cur = tagOf(editingId);
+    if (!confirm('"' + cur.title + '" silinsin mi? Geçmiş kayıtları grafiklerde kalır.')) return;
+    const i = tags.findIndex((x) => x.id === editingId);
+    tags[i] = Object.assign({}, tags[i], { deleted: true, updated: now() });
+    save(K.tags, tags);
+    resetTagForm();
+    renderTagChips();
+    renderStats();
+    runSync();
+  });
+
+  $('#tag-new').addEventListener('click', resetTagForm);
+  $('#tag-close').addEventListener('click', closeTagDialog);
+  tagdlg.addEventListener('click', (e) => { if (e.target === tagdlg) closeTagDialog(); });
+
+  // ---------------------------------------------------------------
   // Menü: örnek veri, yedek, silme
   // ---------------------------------------------------------------
   function seedSample() {
@@ -647,7 +874,8 @@
         const start = d.getTime();
         if (start >= t) continue;
         const m = Math.max(20, sl.mins + Math.floor(Math.random() * 41) - 20);
-        sessions.push(newSession(start, m * 60, sl.tag, true));
+        const broken = Math.random() < 0.12;
+        sessions.push(newSession(start, Math.round(m * (broken ? 0.4 : 1)) * 60, sl.tag, !broken));
       }
     }
     save(K.sessions, sessions);
@@ -667,7 +895,7 @@
   }
 
   function exportData() {
-    const payload = { version: 2, wipedAt: meta.wipedAt, sessions: sessions };
+    const payload = { version: 3, wipedAt: meta.wipedAt, sessions: sessions, tags: tags };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -692,10 +920,17 @@
         if (!confirm(items.length + ' kayıt eklenecek (aynı olanlar tekrar eklenmez). Devam?')) return;
         // Geri yüklenen kayıtlar önceki bir "sil" işaretine takılmasın
         const stamp = now();
-        const merged = mergeData(sessions, meta.wipedAt, { wipedAt: 0, sessions: items.map((s) => Object.assign({}, s, { added: stamp })) });
+        const merged = mergeData(sessions, meta.wipedAt, {
+          wipedAt: 0,
+          sessions: items.map((s) => Object.assign({}, s, { added: stamp })),
+          tags: Array.isArray(data.tags) ? data.tags : [],
+        }, tags);
         sessions = merged.sessions;
+        tags = merged.tags;
         save(K.sessions, sessions);
+        save(K.tags, tags);
         renderStats();
+        renderTagChips();
         runSync();
       } catch (e) {
         alert('Bu dosya geçerli bir Odak yedeği değil.');
