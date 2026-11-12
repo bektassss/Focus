@@ -11,7 +11,7 @@
     { id: 'work', title: 'İş', color: '#d4998f', icon: '💼', created: 2 },
     { id: 'fun', title: 'Eğlence', color: '#c9cc8a', icon: '🎮', created: 3 },
   ];
-  const PALETTE = ['#e3c787', '#8fbdc9', '#d4998f', '#c9cc8a', '#b7a6d6', '#e0a3b8', '#8fc7a8', '#e69a5a', '#d96459', '#9aa7b8'];
+  const PALETTE = ['#e3c787', '#8fbdc9', '#d4998f', '#c9cc8a', '#b7a6d6', '#e0a3b8', '#8fc7a8', '#e69a5a', '#d96459', '#9aa7b8', '#5fb97f', '#e5534b'];
   const ICONS = ['📚', '🏃', '💼', '🎮', '💻', '🎨', '🎵', '📖', '🧘', '✍️', '🍳', '🛠️', '🧪', '🌱', '☕', '🏋️'];
 
   // Odak ekranında rastgele gösterilen kısa sözler
@@ -96,6 +96,26 @@
     if (h === 0) return r + ' dk';
     if (r === 0) return h + ' saat';
     return h + ' saat ' + r + ' dk';
+  }
+
+  /** Etiket rengini halka için canlılaştırır (doygunluğu artırır, parlaklığı dengeler) */
+  function vivid(hex) {
+    const n = parseInt(hex.slice(1), 16);
+    const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b);
+    let h = 0, sat = 0;
+    const l = (mx + mn) / 2;
+    if (mx !== mn) {
+      const d = mx - mn;
+      sat = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+      if (mx === r) h = (g - b) / d + (g < b ? 6 : 0);
+      else if (mx === g) h = (b - r) / d + 2;
+      else h = (r - g) / d + 4;
+      h *= 60;
+    }
+    const S = Math.min(0.85, Math.max(0.55, sat * 1.5));
+    const L = Math.min(0.58, Math.max(0.46, l));
+    return 'hsl(' + Math.round(h) + ',' + Math.round(S * 100) + '%,' + Math.round(L * 100) + '%)';
   }
 
   function hexToRgba(hex, a) {
@@ -205,9 +225,10 @@
     JSON.stringify(a.tags) === JSON.stringify(b.tags);
 
   /** Verilen aralığa (ms) düşen toplam odak süresi (saniye). */
-  function focusSeconds(from, to) {
+  function focusSeconds(from, to, tagId) {
     let total = 0;
     for (const s of sessions) {
+      if (tagId && s.tag !== tagId) continue;
       const end = s.start + s.seconds * 1000;
       const lo = Math.max(s.start, from);
       const hi = Math.min(end, to);
@@ -304,7 +325,7 @@
     $('#running').hidden = false;
     const rt = tagOf(running.tag);
     $('#runtag').textContent = (rt.icon ? rt.icon + ' ' : '') + rt.title;
-    $('#ring').style.stroke = rt.color;
+    $('#ring').style.stroke = vivid(rt.color);
     if (typeof running.q !== 'number') {
       running.q = Math.floor(Math.random() * QUOTES.length);
       save(K.running, running);
@@ -485,6 +506,61 @@
   }
 
   // ---------------------------------------------------------------
+  // İstatistik: Çubuk grafik — son 7 gün, günlük toplam, etiket renklerine bölünmüş
+  // ---------------------------------------------------------------
+  const DAYS_TR = ['Paz', 'Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt'];
+
+  function renderWeek() {
+    const todayStart = startOfDay(now());
+    const used = new Set();
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const from = addDays(todayStart, -i);
+      const to = addDays(from, 1);
+      const parts = [];
+      const ids = Array.from(new Set(sessions
+        .filter((s) => s.start < to && s.start + s.seconds * 1000 > from)
+        .map((s) => s.tag)));
+      // etiket sırası: tanımlı etiketlerin sırası, bilinmeyenler sona
+      ids.sort((a, b) => {
+        const ia = tags.findIndex((t) => t.id === a), ib = tags.findIndex((t) => t.id === b);
+        return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+      });
+      for (const id of ids) {
+        const sec = focusSeconds(from, to, id);
+        if (sec > 0) { parts.push({ id, sec }); used.add(id); }
+      }
+      const total = parts.reduce((a, p) => a + p.sec, 0);
+      days.push({ label: DAYS_TR[new Date(from).getDay()], total, parts, today: i === 0 });
+    }
+
+    const head = '<div class="cardhead"><h2>Son 7 Gün</h2></div>';
+    const max = Math.max(...days.map((d) => d.total));
+    if (!max) {
+      $('#week').innerHTML = head + '<div class="empty">Henüz kayıt yok</div>';
+      return;
+    }
+    const H = 110; // en yüksek çubuğun piksel yüksekliği
+    const hm = (sec) => { const m = Math.floor(sec / 60); return Math.floor(m / 60) + ':' + pad(m % 60); };
+
+    const cols = days.map((d) => {
+      const stack = d.total
+        ? '<div class="bstack" style="height:' + Math.max(6, Math.round((d.total / max) * H)) + 'px">' +
+          d.parts.map((p) => '<div class="bseg" style="flex:' + p.sec + ';background:' + tagOf(p.id).color + '"></div>').join('') + '</div>'
+        : '<div class="bstack empty"></div>';
+      return '<div class="bcol"><div class="bval">' + (d.total ? hm(d.total) : '') + '</div>' + stack +
+        '<div class="bday' + (d.today ? ' today' : '') + '">' + d.label + '</div></div>';
+    }).join('');
+
+    const legend = Array.from(used).map((id) => {
+      const t = tagOf(id);
+      return '<span><i style="background:' + t.color + '"></i>' + (t.icon ? esc(t.icon) + ' ' : '') + esc(t.title) + '</span>';
+    }).join('');
+
+    $('#week').innerHTML = head + '<div class="bars">' + cols + '</div><div class="blegend">' + legend + '</div>';
+  }
+
+  // ---------------------------------------------------------------
   // İstatistik: Kart 2 — Etiket Dağılımı
   // ---------------------------------------------------------------
   function renderBreakdown() {
@@ -582,6 +658,7 @@
 
   function renderStats() {
     renderTrend();
+    renderWeek();
     renderBreakdown();
     renderBroken();
   }

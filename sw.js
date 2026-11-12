@@ -1,5 +1,5 @@
 // Önce ağ, olmazsa önbellek: güncellemeler hemen görünür, çevrimdışı da açılır.
-const CACHE = 'odak-v3';
+const CACHE = 'odak-v4';
 const ASSETS = [
   './',
   'index.html',

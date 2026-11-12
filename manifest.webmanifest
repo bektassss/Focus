@@ -1,6 +1,6 @@
 {
-  "name": "Odak",
-  "short_name": "Odak",
+  "name": "Focus",
+  "short_name": "Focus",
   "description": "Odaklanma oturumları ve zamanın nereye gittiğini gösteren istatistikler",
   "lang": "tr",
   "start_url": "./",
